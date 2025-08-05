@@ -205,14 +205,18 @@ class CustomTD3_AC(TD3):
         # Calculate constraint violation
         constraint_violation = constraint_cost - self.constraint_threshold
         
-        # ✅ SIMPLIFIED UPDATE: Direct lambda update using the standard CRL formula
-        # λ_new = max(0, λ_old + α * (constraint_cost - threshold))
+        # 💡 GRADIENT FIX: Invert the gradient for lambda update
+        # The standard update is for minimization, but we want to *increase* lambda
+        # when the constraint is violated (cost > threshold).
+        # We achieve this by negating the violation term.
+        # λ_new = max(0, λ_old - α * (threshold - constraint_cost))
         with torch.no_grad():
             # Get current lambda value
             current_lambda = self.lambda_param.item()
             
-            # Apply the CRL update rule
-            new_lambda = max(0.0, current_lambda + self.lambda_lr * constraint_violation)
+            # Apply the corrected CRL update rule (gradient is inverted)
+            gradient = constraint_violation  # Standard gradient
+            new_lambda = max(0.0, current_lambda + self.lambda_lr * gradient)
             
             # Update the parameter
             self.lambda_param.fill_(new_lambda)
@@ -248,7 +252,11 @@ class CustomTD3_AC(TD3):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
 
             with torch.no_grad():
-                batch_size_ = replay_data.next_observations.shape[0]
+                # Handle both dict and tensor observations
+                if isinstance(replay_data.next_observations, dict):
+                    batch_size_ = replay_data.next_observations['observations'].shape[0]
+                else:
+                    batch_size_ = replay_data.next_observations.shape[0]
                 action_dim = self.action_space.shape[0]
                 device = self.device
 
